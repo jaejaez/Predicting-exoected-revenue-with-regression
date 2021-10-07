@@ -1,0 +1,331 @@
+---
+title: "analytics_project"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+##Load Packages & Import data- Variable Gift90 is added through excel to reflect variable Gift_Within_90days in Binary format(0,1)
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(readr)
+library(ggplot2)
+library(VIM)
+library(psych)
+donor= readxl::read_xlsx('Analytics.Donor.Data.xlsx')
+mail = readxl::read_xlsx('Analytics.Direct.Mail.Data.xlsx',sheet = "Direct Mail Recipient FY18-FY20")
+head(donor)
+head(mail)
+```
+#Renaming col names
+```{r}
+colnames(mail) = c('Account_ID', 'Campaign_Name', 'Mail_Date', 'Handwritten_Follow_up','Gift90',
+                   'Gift_within_90_days', 'Region_Name', 'Payment_Amount', 'Contact_Restriction_Type', 'Last_Donation_Date',
+                   'Mailing_City', 'Mailing_State','Mailing_Zip')
+head(mail)
+colnames(donor) = c('Account_ID','Corps_Member_or_Alum','Corps_Year','Parent_of_Incoming_CM','Parent_of_CM','Parent_of_Alum',
+                    'Future_RBoard_Member','Former_RBoard_Member','Current_RBoard_Member','TFA_Staff_Status','FY10_Giving',
+                    'FY11_Giving','FY12_Giving','FY13_Giving','FY14_Giving','FY15_Giving','FY16_Giving','FY17_Giving',
+                    'FY18_Giving','FY19_Giving','FY20_Giving')
+head(donor)
+```
+###Exclude campaigns types with Do not mail /Do not contact: out of the 27547 campaign sent, some campaigns were sent to donors who prefer do not contact at all and do not send mail.These transactions should be dropped for the analysis regardless of the outcome of the campaign because they violated donor' preference
+
+```{r}
+mail = mail[!grepl("Do not Contact", mail$Contact_Restriction_Type),]
+mail = mail[!grepl("Do not Send Mail", mail$Contact_Restriction_Type),]
+```
+
+
+
+##Inspecting Variables- Parent_of_Alum and Corps_member_or_alum are good features to consider because they have somewhat distinct distribution
+
+```{r}
+apply(donor[c("Parent_of_Incoming_CM", "Current_RBoard_Member",'Future_RBoard_Member','Former_RBoard_Member','Parent_of_CM','Parent_of_Alum','Parent_of_Incoming_CM','Corps_Member_or_Alum','TFA_Staff_Status')], 2, table)
+
+```
+###Checking Missing values-- FY-Giving Year 17 18 19 are most recent and have relatively less NAs than other FY Giving information
+```{r}
+map(donor, ~sum(is.na(.)))
+aggr_plot <- aggr(donor, col=c('navyblue','red'), numbers=TRUE, sortVars=TRUE, labels=names(donor), cex.axis=.7, gap=2, ylab=c("Histogram of missing data","Pattern"))
+```
+
+###Impute 0 for NAs/ Factor binary Variables
+```{r}
+donor[c("FY10_Giving","FY11_Giving","FY12_Giving","FY13_Giving","FY14_Giving",
+             "FY15_Giving","FY16_Giving","FY17_Giving","FY18_Giving","FY19_Giving",
+             "FY20_Giving")][is.na(donor[c("FY10_Giving","FY11_Giving","FY12_Giving",
+                                                "FY13_Giving","FY14_Giving",
+                                                "FY15_Giving","FY16_Giving","FY17_Giving",
+                                                "FY18_Giving","FY19_Giving",
+                                                "FY20_Giving")])] <- 0
+tail(donor)
+
+```
+#New Variable: Count of Years of Giving
+```{r}
+donor['Count_Years_Donation'] = rowSums(!is.na(donor[,11:21])&donor[,11:21]>0)
+donor$Count_Years_Donation[is.na(donor$Count_Years_Donation)] = 0
+```
+##Impute NAs in Binary variables with 0s & Facotr them
+
+```{r}
+donor$Corps_Member_or_Alum[is.na(donor$Corps_Member_or_Alum)] = 0
+donor$Parent_of_Alum[is.na(donor$Parent_of_Alum)] = 0
+donor$Parent_of_Alum =as.factor(donor$Parent_of_Alum)
+donor$Corps_Member_or_Alum =as.factor(donor$Corps_Member_or_Alum)
+
+```
+
+
+
+
+
+
+##Joining Dataset
+```{r}
+mail_donor = left_join(mail,donor, by = c('Account_ID'='Account_ID'))
+tail(mail_donor)
+
+
+```
+
+
+#Impute NAs
+```{r}
+mail_donor[c("FY10_Giving","FY11_Giving","FY12_Giving","FY13_Giving","FY14_Giving",
+             "FY15_Giving","FY16_Giving","FY17_Giving","FY18_Giving","FY19_Giving",
+             "FY20_Giving")][is.na(mail_donor[c("FY10_Giving","FY11_Giving","FY12_Giving",
+                                                "FY13_Giving","FY14_Giving",
+                                                "FY15_Giving","FY16_Giving","FY17_Giving",
+                                                "FY18_Giving","FY19_Giving",
+                                                "FY20_Giving")])] <- 0
+mail_donor$Corps_Member_or_Alum[is.na(mail_donor$Corps_Member_or_Alum)] = 0
+mail_donor$Parent_of_Alum[is.na(mail_donor$Parent_of_Alum)] = 0
+mail_donor$Count_Years_Donation[is.na(mail_donor$Count_Years_Donation)] = 0
+mail_donor$Payment_Amount[is.na(mail_donor$Payment_Amount)] = 0
+```
+###Facotring the variable
+
+```{r}
+mail_donor$Parent_of_Alum =as.factor(mail_donor$Parent_of_Alum)
+mail_donor$Corps_Member_or_Alum =as.factor(mail_donor$Corps_Member_or_Alum)
+```
+
+###Feature selection
+
+```{r}
+mail_donor %>%
+  group_by(Corps_Member_or_Alum) %>%
+  summarize(mean(Gift90))
+mail_donor %>%
+  group_by(Parent_of_Alum) %>%
+  summarize(mean(Gift90))
+mail_donor %>%
+  group_by(Count_Years_Donation) %>%
+  summarize(mean(Gift90))
+
+```
+###Data split
+```{r}
+set.seed(1078)
+split = sample(1:nrow(mail_donor),0.7*nrow(mail_donor))
+train = mail_donor[split,]
+test = mail_donor[-split,]
+nrow(train)
+nrow(test)
+```
+##Logistic Regression Models- Predicting Gift Probability
+```{r}
+
+
+lm1 <- glm(Gift90 ~FY20_Giving
+            +Corps_Member_or_Alum +Parent_of_Alum+Count_Years_Donation,
+           data=train, family="binomial")
+summary(lm1)
+```
+##Predicting Test and checking Accuracy
+```{r}
+pred = predict(lm1, newdata=test, type="response")
+ct = table(Gift =test$Gift90,
+           predictions = as.integer(pred>.5)); ct
+accuracy = sum(ct[1,1],ct[2,2])/nrow(test);accuracy
+```
+#Predicting the donor dataset
+```{r}
+pred1 = predict(lm1, newdata=donor, type="response")
+mail_prediction = data.frame(id = donor$Account_ID, Donate_Prob = pred1)
+mail_prediction = na.omit(mail_prediction)
+```
+
+
+##Adding TFA variable to Linear model
+```{r}
+mail_donor %>%
+  group_by(TFA_Staff_Status) %>%
+  summarize(mean(Payment_Amount))
+mail_donor$TFA_Staff_Status = as.factor(mail_donor$TFA_Staff_Status)
+donor$TFA_Staff_Status = as.factor(donor$TFA_Staff_Status)
+
+#table(mail_donor$TFA_Staff_Status)
+```
+##Linear Regression for Payment_Amount Prediction
+```{r}
+set.seed(1078)
+split = sample(1:nrow(mail_donor),0.7*nrow(mail_donor))
+train = mail_donor[split,]
+test = mail_donor[-split,]
+
+lm2 <- lm(Payment_Amount ~FY20_Giving+TFA_Staff_Status+Count_Years_Donation+Corps_Member_or_Alum +Parent_of_Alum,
+          data=train)
+summary(lm2)
+```
+
+##Predict test & RMSE check
+```{r}
+lm2$xlevels[["TFA_Staff_Status"]] <- union(lm2$xlevels[["TFA_Staff_Status"]], levels(test$TFA_Staff_Status))
+pred_linear = predict(lm2, newdata=test)
+rmse = sqrt(mean(na.omit((pred_linear-test$Payment_Amount))^2));rmse
+```
+####Predicting the donor dataset
+```{r}
+lm2$xlevels[["TFA_Staff_Status"]] <- union(lm2$xlevels[["TFA_Staff_Status"]],levels(donor$TFA_Staff_Status))
+pred2 = predict(lm2, newdata=donor)
+payment_prediction = data.frame(id = donor$Account_ID, Donate_amount = pred2)
+payment_prediction = na.omit(payment_prediction)
+payment_prediction=payment_prediction %>% filter(Donate_amount>=0)
+
+```
+
+###Combining predicted dataset and calculate expected return
+```{r}
+mail_payment_pred= inner_join(mail_prediction,payment_prediction, by ='id')
+mail_payment_pred['Expected_return']=
+  mail_payment_pred$Donate_Prob*mail_payment_pred$Donate_amount
+```
+###Sorting and selecting the top 2000 donors-Expected Return:$101231.4
+```{r}
+mail_payment_pred = mail_payment_pred %>%
+  arrange(desc(Expected_return))
+sum(mail_payment_pred[1:2000,4])
+sum(mail_payment_pred$Expected_return)
+
+```
+###Inspecting characteristics of theae 2000 customers
+```{r}
+mail_payment_pred1=mail_payment_pred[1:2000,]
+mail_payment_pred1=inner_join(mail_payment_pred1,donor, by=c('id'='Account_ID'))
+apply(mail_payment_pred1[c("Parent_of_Incoming_CM", "Current_RBoard_Member",'Future_RBoard_Member','Former_RBoard_Member','Parent_of_CM','Parent_of_Alum','Parent_of_Incoming_CM','Corps_Member_or_Alum','TFA_Staff_Status','Count_Years_Donation')], 2, table)
+```
+##Base on the model, Marketing team should focus on Corps members or alum, Former Temp Employees Former independent Contractors and Former Employees are the important groups to target,Donors who have donated more than 3 years should be the priority as well.
+
+###What campaign should we consider? -
+#FY20 National EOCY - Direct Mail V1 - Renew Handwritten,FY20 National EOCY - Direct Mail V1 - Renew Standard are top choices as both of them have shown high success rate and sufficient sample size
+
+```{r}
+campaign = mail %>%
+  group_by(Campaign_Name) %>%
+  summarize(mean(Gift90),length(Campaign_Name))
+campaign = campaign %>%
+  arrange(desc(`mean(Gift90)`))
+head(campaign,27)
+```
+###Seasonality-Nov/Dec are the best time to send out campaign because donors are in giving mood during holiday seasons. May is also a good time with Easter happening.
+```{r}
+donation_month = format(as.Date(mail$Last_Donation_Date,format="%Y-%m-%d"), format = "%m")
+donation_month = as.integer(donation_month)
+hist(donation_month,breaks = 12)
+
+```
+
+###Understanding Donors at different States
+```{r}
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Arkansas'] <- 'AR'
+mail_donor$Mailing_State[mail_donor$Mailing_State %in% c('Al','Alabama')] <- 'AL'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Arizona'] <- 'AZ'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'California'] <- 'CA'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Colorado'] <- 'CO'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Connecticut'] <- 'CT'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'D.C.'] <- 'DC'
+mail_donor$Mailing_State[mail_donor$Mailing_State %in% c('fl','Florida')] <- 'FL'
+mail_donor$Mailing_State[mail_donor$Mailing_State %in% c('Ga','Georgia')] <- 'GA'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Hawaii'] <- 'HI'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Idaho'] <- 'ID'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Illinois'] <- 'IL'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Indiana'] <- 'ID'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Iowa'] <- 'IA'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Kansas'] <- 'KS'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Kentucky'] <- 'KY'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Massachusetts'] <- 'MA'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Maine'] <- 'ME'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Maryland'] <- 'MD'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Michigan'] <- 'MI'
+mail_donor$Mailing_State[mail_donor$Mailing_State %in% c('Minnesota','Mn')] <- 'MN'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Mississippi'] <- 'MS'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Missouri'] <- 'MO'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Nebraska'] <- 'NE'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Nevada'] <- 'NV'
+mail_donor$Mailing_State[mail_donor$Mailing_State %in% c('New Jersey','Nj')] <- 'NJ'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'New Mexico'] <- 'NM'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'New York'] <- 'NY'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'North Carolina'] <- 'NC'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Ohio'] <- 'OH'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Oklahoma'] <- 'OK'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Oregon'] <- 'OR'
+mail_donor$Mailing_State[mail_donor$Mailing_State %in% c('Pennsylvania','Pa')] <- 'PA'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Rhode Island'] <- 'RI'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'South Carolina'] <- 'SC'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'South Dakota'] <- 'SD'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Tennesee'] <- 'TN'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Texas'] <- 'TX'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Utah'] <- 'UT'
+mail_donor$Mailing_State[mail_donor$Mailing_State %in% c('va','Virginia')] <- 'VA'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Vermont'] <- 'VT'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Washington'] <- 'WA'
+mail_donor$Mailing_State[mail_donor$Mailing_State == 'Wisconsin'] <- 'WI'
+table(mail_donor$Mailing_State)
+p <- ggplot(mail_donor, aes(x=Mailing_State, y= Gift90 )) + 
+  geom_bar(stat="identity",fill="steelblue")+ 
+  theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5))
+p
+```
+
+###Why TFA was not a good variable for Logistic but good for Linear model? - One possible explaination for this is former/current staff are very generous.
+```{r}
+staff = mail_donor
+staff$TFA_Staff_Status = as.character(staff$TFA_Staff_Status)
+staff$TFA_Staff_Status[is.na(staff$TFA_Staff_Status)] = 'Not_applicable'
+q <- ggplot(staff, aes(x=TFA_Staff_Status, y=Payment_Amount)) + 
+  geom_boxplot() +
+  theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5))
+q
+```
+
+
+
+
+
